@@ -92,3 +92,120 @@
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
+
+import pandas as pd
+import joblib
+import gzip
+import os
+import zipfile
+from pathlib import Path
+
+def load_and_clean_data(file_path):
+    """
+    Carga y limpia un DataFrame desde un archivo ZIP que contiene un CSV.
+
+    Args:
+        file_path (str): Ruta del archivo ZIP.
+
+    Returns:
+        pd.DataFrame: DataFrame limpio.
+    """
+    # Extraer y leer archivo CSV dentro del ZIP
+    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+        extracted_file = zip_ref.namelist()[0]
+        with zip_ref.open(extracted_file) as f:
+            df = pd.read_csv(f)
+
+    # Renombrar columna objetivo
+    df.rename(columns={"default payment next month": "default"}, inplace=True)
+
+    # Eliminar columna 'ID'
+    if 'ID' in df.columns:
+        df.drop(columns=["ID"], inplace=True)
+
+    # Eliminar registros con información no disponible
+    df.dropna(inplace=True)
+
+    # Agrupar valores > 4 de 'EDUCATION' en "others"
+    if 'EDUCATION' in df.columns:
+        df['EDUCATION'] = df['EDUCATION'].apply(lambda x: 4 if x > 4 else x)
+
+    return df
+
+def save_model(model, output_path):
+    """
+    Guarda un modelo entrenado en formato comprimido .pkl.gz.
+
+    Args:
+        model: Modelo entrenado a guardar.
+        output_path (str): Ruta completa donde se guardará el modelo, incluyendo el nombre del archivo.
+
+    Returns:
+        None
+    """
+    # Crear el directorio si no existe
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Guardar el modelo comprimido
+    with gzip.open(output_path, 'wb') as f:
+        joblib.dump(model, f)
+
+    print(f"Modelo guardado correctamente en: {output_path}")
+
+if __name__ == "__main__":
+    # Rutas de entrada
+    train_file_path = "files/input/train_data.csv.zip"
+    test_file_path = "files/input/test_data.csv.zip"
+
+    # Cargar y limpiar los datos
+    print("Cargando y limpiando los datos...")
+    train_df = load_and_clean_data(train_file_path)
+    test_df = load_and_clean_data(test_file_path)
+
+    # Separar variables explicativas (X) y objetivo (y)
+    X_train = train_df.drop(columns=["default"])
+    y_train = train_df["default"]
+
+    X_test = test_df.drop(columns=["default"])
+    y_test = test_df["default"]
+
+    # Ejemplo de modelo (sustituir por el modelo entrenado real)
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.compose import ColumnTransformer
+    from sklearn.preprocessing import OneHotEncoder
+
+    # Identificar columnas categóricas y numéricas
+    categorical_features = ['SEX', 'EDUCATION', 'MARRIAGE']
+    numerical_features = [col for col in X_train.columns if col not in categorical_features]
+
+    # Crear transformador para variables categóricas
+    categorical_transformer = OneHotEncoder(handle_unknown='ignore')
+
+    # Crear el preprocesador
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('cat', categorical_transformer, categorical_features)
+        ],
+        remainder='passthrough'
+    )
+
+    # Crear el pipeline
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('classifier', RandomForestClassifier(random_state=42))
+    ])
+
+    # Entrenar el modelo
+    print("Entrenando el modelo...")
+    pipeline.fit(X_train, y_train)
+
+    # Definir la ruta donde se guardará el modelo
+    model_path = "files/models/model.pkl.gz"
+    model_path = model_path.replace("\\", "/")
+
+    # Guardar el modelo entrenado
+    save_model(pipeline, model_path)
+
+    print("Proceso completado.")
