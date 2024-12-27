@@ -99,6 +99,12 @@ import gzip
 import os
 import zipfile
 from pathlib import Path
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.metrics import precision_score, balanced_accuracy_score, recall_score, f1_score, confusion_matrix
+import json
 
 def load_and_clean_data(file_path):
     """
@@ -153,6 +159,58 @@ def save_model(model, output_path):
 
     print(f"Modelo guardado correctamente en: {output_path}")
 
+def calculate_and_save_metrics(model, X_train, y_train, X_test, y_test, output_path):
+    """
+    Calcula métricas para conjuntos de entrenamiento y prueba, y las guarda en un archivo JSON.
+
+    Args:
+        model: Modelo entrenado.
+        X_train: Variables explicativas del conjunto de entrenamiento.
+        y_train: Variable objetivo del conjunto de entrenamiento.
+        X_test: Variables explicativas del conjunto de prueba.
+        y_test: Variable objetivo del conjunto de prueba.
+        output_path (str): Ruta completa del archivo JSON donde se guardarán las métricas.
+
+    Returns:
+        None
+    """
+    def calculate_metrics(X, y, dataset_name):
+        y_pred = model.predict(X)
+        cm = confusion_matrix(y, y_pred)
+        return {
+            "type": "metrics",
+            "dataset": dataset_name,
+            "precision": precision_score(y, y_pred),
+            "balanced_accuracy": balanced_accuracy_score(y, y_pred),
+            "recall": recall_score(y, y_pred),
+            "f1_score": f1_score(y, y_pred),
+        }, {
+            "type": "cm_matrix",
+            "dataset": dataset_name,
+            "true_0": {
+                "predicted_0": int(cm[0, 0]),
+                "predicted_1": int(cm[0, 1]) if cm.shape[1] > 1 else None
+            },
+            "true_1": {
+                "predicted_0": int(cm[1, 0]) if cm.shape[0] > 1 else None,
+                "predicted_1": int(cm[1, 1]) if cm.shape[0] > 1 and cm.shape[1] > 1 else None
+            }
+        }
+
+    # Calcular métricas y matrices para entrenamiento y prueba
+    train_metrics, train_cm = calculate_metrics(X_train, y_train, "train")
+    test_metrics, test_cm = calculate_metrics(X_test, y_test, "test")
+
+    # Crear directorio si no existe
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Guardar métricas y matrices en archivo JSON
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump([train_metrics, test_metrics, train_cm, test_cm], f, indent=4)
+
+    print(f"Métricas guardadas correctamente en: {output_path}")
+
 if __name__ == "__main__":
     # Rutas de entrada
     train_file_path = "files/input/train_data.csv.zip"
@@ -169,12 +227,6 @@ if __name__ == "__main__":
 
     X_test = test_df.drop(columns=["default"])
     y_test = test_df["default"]
-
-    # Ejemplo de modelo (sustituir por el modelo entrenado real)
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.pipeline import Pipeline
-    from sklearn.compose import ColumnTransformer
-    from sklearn.preprocessing import OneHotEncoder
 
     # Identificar columnas categóricas y numéricas
     categorical_features = ['SEX', 'EDUCATION', 'MARRIAGE']
@@ -207,5 +259,9 @@ if __name__ == "__main__":
 
     # Guardar el modelo entrenado
     save_model(pipeline, model_path)
+
+    # Calcular y guardar métricas
+    metrics_path = "files/output/metrics.json"
+    calculate_and_save_metrics(pipeline, X_train, y_train, X_test, y_test, metrics_path)
 
     print("Proceso completado.")
